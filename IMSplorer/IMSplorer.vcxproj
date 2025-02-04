@@ -22,7 +22,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{84ed4ebf-8e40-4266-97ab-5eec98492ed5}</ProjectGuid>
-    <RootNamespace>IMSplorer</RootNamespace>
+    <RootNamespace>ImSplorer</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

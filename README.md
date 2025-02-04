@@ -1,6 +1,23 @@
-# IMSplorer
+<div align="center">
+  <a href="https://github.com/BenMcAvoy/ImSplorer">
+    <img src="assets/logo.png" alt="Logo" width="128" height="128">
+  </a>
 
-Very unstable program to replace explorer.exe with a custom one using Dear ImGui.
+  <h3 align="center">ImSplorer</h3>
+
+  <p align="center">
+    A custom shell that replaces explorer.exe with a custom one using Dear ImGui.
+    <br />
+    <a href="https://github.com/BenMcAvoy/ImSplorer/releases"><strong>« Take me to the downloads »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/BenMcAvoy/ImSplorer/releases">Releases</a>
+    ·
+    <a href="https://github.com/BenMcAvoy/ImSplorer/issues">Report Bugs</a>
+    ·
+    <a href="https://github.com/BenMcAvoy/ImSplorer/issues">Request Features</a>
+  </p>
+</div>
 
 > [!WARNING]
 > This program is very unstable and may cause your computer to crash. Use at your own risk.
