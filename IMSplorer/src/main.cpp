@@ -19,8 +19,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLi
 	spdlog::set_default_logger(logger);
 
 	// Check if a window named "IMSplorerTB" already exists
-	if (!FindWindowA("IMSplorerTB", nullptr)) {
-		IMS::Taskbar taskbar("IMSplorerTB");
+	if (!FindWindowA("ImSplorerTB", nullptr)) {
+		IMS::Taskbar taskbar("ImSplorerTB");
 
 		taskbar.Run();
 	}

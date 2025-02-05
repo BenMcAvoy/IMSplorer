@@ -4,7 +4,7 @@
 
 namespace IMS {
 	struct Window {
-		std::string title;
+		std::string exe;
 		bool isFocused = false;
 	};
 
@@ -19,7 +19,15 @@ namespace IMS {
 		int height = 0;
 
 	//private:
+		HHOOK kbdHook = nullptr;
+
 		static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+		static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+
+		void InitWindow();
+		void InitShell() const;
+		void InitD3D();
+		void InitImGui();
 
 		// DX11
 		ID3D11Device* device = nullptr;

@@ -19,17 +19,18 @@ static bool validateWindow(HWND hWnd) {
 	if (GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return false;
 	if (!IsWindowVisible(hWnd)) return false;
 	if (GetWindowLong(hWnd, GWLP_HWNDPARENT) != 0) return false;
-	auto styleEx = GetWindowLong(hWnd, GWL_EXSTYLE);
-	if (styleEx & WS_EX_TOOLWINDOW) return false;
 
 	if (g_Taskbar->windows.find(hWnd) != g_Taskbar->windows.end()) return false;
+
+	char name[256] = { 0 };
+	GetWindowTextA(hWnd, name, 256);
+	if (strstr(name, "ImSplorer") != nullptr || memcmp(name, "Start", 5) == 0)
+		return false;
 
 	return true;
 }
 
-Taskbar::Taskbar(const std::string& title) {
-	g_Taskbar = this;
-
+void Taskbar::InitWindow() {
 	// Set window properties
 	this->title = title;
 	std::wstring titleW(title.begin(), title.end());
@@ -45,21 +46,21 @@ Taskbar::Taskbar(const std::string& title) {
 	this->wc.hCursor = nullptr;
 	this->wc.hbrBackground = nullptr;
 	this->wc.lpszMenuName = nullptr;
-	this->wc.lpszClassName = titleW.c_str();
+	this->wc.lpszClassName = L"ImSplorerTB";
 	this->wc.style = CS_DBLCLKS; // Double click messages
 	this->wc.hIconSm = nullptr;
 	RegisterClassEx(&this->wc);
 
-	DWORD dwStyle   = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-    DWORD dwExStyle = WS_EX_LEFT | WS_EX_LTRREADING | WS_EX_RIGHTSCROLLBAR |
-                      WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+	DWORD dwStyle = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+	DWORD dwExStyle = WS_EX_LEFT | WS_EX_LTRREADING | WS_EX_RIGHTSCROLLBAR |
+		WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
 
 	int screenWidth = GetSystemMetrics(SM_CXSCREEN);
 	int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
 	RECT workArea = { 0 };
-    if (SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0)) {
-        int taskbarHeight = screenHeight - (workArea.bottom - workArea.top);
+	if (SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0)) {
+		int taskbarHeight = screenHeight - (workArea.bottom - workArea.top);
 		if (taskbarHeight != (float)this->tbHeight) {
 			spdlog::info("Taskbar height changed from {} to {}", this->tbHeight, this->tbHeight);
 			this->tbHeight = (float)taskbarHeight;
@@ -69,18 +70,31 @@ Taskbar::Taskbar(const std::string& title) {
 		spdlog::warn("SystemParametersInfo failed, can't calculate taskbar height");
 	}
 
-	this->hWnd = CreateWindowEx(
-        dwExStyle,
-        wc.lpszClassName,
+	this->hWnd = CreateWindowExW(
+		dwExStyle,
+		wc.lpszClassName,
 		titleW.c_str(),
-        dwStyle,
-        0, screenHeight - this->tbHeight, // X, Y position (bottom of screen)
-        screenWidth, this->tbHeight,        // Width, Height
-        nullptr,
-        nullptr,
+		dwStyle,
+		0, screenHeight - this->tbHeight, // X, Y position (bottom of screen)
+		screenWidth, this->tbHeight,        // Width, Height
+		nullptr,
+		nullptr,
 		wc.hInstance,
-        nullptr
-    );
+		nullptr
+	);
+
+	// Check for errors
+	if (this->hWnd == nullptr) {
+		// Get error message
+		LPSTR messageBuffer = nullptr;
+		size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, nullptr);
+		std::string message(messageBuffer, size);
+		LocalFree(messageBuffer);
+
+		spdlog::error("Failed to create window: {}", message);
+
+		return;
+	}
 
 	this->width = screenWidth;
 	this->height = this->tbHeight;
@@ -90,7 +104,9 @@ Taskbar::Taskbar(const std::string& title) {
 	UpdateWindow(this->hWnd);
 
 	this->isRunning = true;
+}
 
+void Taskbar::InitShell() const {
 	auto user32 = LoadLibrary(L"user32.dll");
 	if (user32) {
 		auto SetShellWindow = (BOOL(WINAPI*)(HWND))GetProcAddress(user32, "SetShellWindow");
@@ -107,6 +123,14 @@ Taskbar::Taskbar(const std::string& title) {
 
 	if (!RegisterShellHookWindow(this->hWnd)) {
 		spdlog::error("RegisterShellHookTaskbar failed");
+	}
+}
+
+void Taskbar::InitD3D() {
+	// Before creating the device, we need to create the window
+	if (!this->hWnd) {
+		spdlog::error("Failed to create window");
+		return;
 	}
 
 	// Create DX11
@@ -127,13 +151,34 @@ Taskbar::Taskbar(const std::string& title) {
 	scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 	scd.Flags = 0;
 
-	D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &scd, &this->swapChain, &this->device, nullptr, &this->deviceContext);
+#ifdef _DEBUG
+	UINT createDeviceFlags = D3D11_CREATE_DEVICE_DEBUG;
+#else
+	UINT createDeviceFlags = 0;
+#endif
+
+	D3D_FEATURE_LEVEL featureLevel;
+	HRESULT res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &scd, &this->swapChain, &this->device, &featureLevel, &this->deviceContext);
+
+	if (FAILED(res)) {
+		// Format error message
+		LPSTR messageBuffer = nullptr;
+		size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, res, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, nullptr);
+		std::string message(messageBuffer, size);
+		LocalFree(messageBuffer);
+
+		std::ofstream file("error.txt");
+		file << message;
+		file.close();
+	}
 
 	ID3D11Texture2D* pBackBuffer;
 	this->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
 	this->device->CreateRenderTargetView(pBackBuffer, nullptr, &this->renderTargetView);
 	pBackBuffer->Release();
+}
 
+void Taskbar::InitImGui() {
 	// Create ImGui
 	IMGUI_CHECKVERSION();
 	this->imguiContext = ImGui::CreateContext();
@@ -163,9 +208,27 @@ Taskbar::Taskbar(const std::string& title) {
 	this->imguiIO->Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 16.0f, &fontConfig);
 	this->imguiIO->Fonts->Build();
 
+	// set all hue values to 0
+	for (int i = 0; i < ImGuiCol_COUNT; i++) {
+		ImVec4& col = this->imguiStyle->Colors[i];
+		float H, S, V;
+		ImGui::ColorConvertRGBtoHSV(col.x, col.y, col.z, H, S, V);
+		H = 0.0f;
+		ImGui::ColorConvertHSVtoRGB(H, S, V, col.x, col.y, col.z);
+	}
+}
+
+Taskbar::Taskbar(const std::string& title) {
+	g_Taskbar = this;
+
+	this->InitWindow();
+	this->InitShell();
+	this->InitD3D();
+	this->InitImGui();
+
 	// Fill in the windows map
 	EnumWindows([](HWND hWnd, LPARAM lParam) -> BOOL {
-		auto taskbar = (Taskbar*)lParam;
+		Taskbar* taskbar = (Taskbar*)lParam;
 
 		DWORD processId;
 		GetWindowThreadProcessId(hWnd, &processId);
@@ -181,6 +244,9 @@ Taskbar::Taskbar(const std::string& title) {
 		std::string exeFileName = std::filesystem::path(exePath).filename().string();
 		taskbar->windows[hWnd] = { exeFileName, false };
 		}, (LPARAM)this);
+
+	// Set the hook
+	this->kbdHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(nullptr), 0);
 }
 
 Taskbar::~Taskbar() {
@@ -198,18 +264,22 @@ Taskbar::~Taskbar() {
 	// Destroy window
 	DestroyWindow(this->hWnd);
 	UnregisterClass(this->wc.lpszClassName, this->wc.hInstance);
+
+	// Unhook
+	UnhookWindowsHookEx(this->kbdHook);
 }
 
 void Taskbar::Run() {
-	MSG msg;
-	ZeroMemory(&msg, sizeof(MSG));
+	MSG msg = { 0 };
 	while (this->isRunning) {
 		if (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 
-			if (msg.message == WM_QUIT)
+			if (msg.message == WM_QUIT) {
+				spdlog::info("WM_QUIT received, stopping taskbar");
 				this->isRunning = false;
+			}
 		}
 
 		if (!this->isRunning)
@@ -246,11 +316,6 @@ void Taskbar::Run() {
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// On win key
-		if (GetAsyncKeyState(VK_LWIN) & 1) {
-			this->showStartMenu = !this->showStartMenu;
-		}
-
 		float screenWidth = (float)GetSystemMetrics(SM_CXSCREEN);
 		float screenHeight = (float)GetSystemMetrics(SM_CYSCREEN);
 
@@ -261,8 +326,8 @@ void Taskbar::Run() {
 			ImGui::Begin("IMSplorer", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
 
 			float windowPadding = ImGui::GetStyle().WindowPadding.y * 2;
-			float width = ImGui::CalcTextSize("Start").x + windowPadding;
-			if (ImGui::Button("Start", ImVec2(width, this->tbHeight - windowPadding))) {
+			//float width = ImGui::CalcTextSize("Start").x + windowPadding;
+			if (ImGui::Button(" ", ImVec2(this->tbHeight - windowPadding, this->tbHeight - windowPadding))) {
 				this->showStartMenu = !this->showStartMenu;
 			}
 
@@ -272,13 +337,11 @@ void Taskbar::Run() {
 			for (auto it = this->windows.begin(); it != end; ++it) {
 				ImGui::PushID(reinterpret_cast<void*>(it->first));
 
-				//ImGui::Text(it->second.title.c_str());
-
 				if (!it->second.isFocused)
 					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
 
-				float width = ImGui::CalcTextSize(it->second.title.c_str()).x + windowPadding;
-				if (ImGui::Button(it->second.title.c_str(), ImVec2(width, this->tbHeight - windowPadding))) {
+				float width = ImGui::CalcTextSize(it->second.exe.c_str()).x + windowPadding;
+				if (ImGui::Button(it->second.exe.c_str(), ImVec2(width, this->tbHeight - windowPadding))) {
 					HWND hWnd = it->first;
 
 					if (!it->second.isFocused) {
@@ -291,6 +354,14 @@ void Taskbar::Run() {
 						SetForegroundWindow(hWnd);
 						ShowWindow(hWnd, SW_MINIMIZE);
 					}
+				}
+
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					char title[256] = { 0 };
+					GetWindowTextA(it->first, title, 256);
+					ImGui::Text(title);
+					ImGui::EndTooltip();
 				}
 
 				if (!it->second.isFocused)
@@ -335,16 +406,17 @@ void Taskbar::Run() {
 
 			static constexpr float startMenuWidth = 400;
 			static constexpr float startMenuHeight = 400;
-			ImGui::SetNextWindowPos(ImVec2(8, screenHeight - startMenuHeight - this->tbHeight - 8));
+			ImGui::SetNextWindowPos(ImVec2(0, screenHeight - startMenuHeight - this->tbHeight));
 			ImGui::SetNextWindowSize(ImVec2(400, 400));
 			ImGui::Begin("Start", &this->showStartMenu, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
 
-			static char buffer[256];
+			static char buffer[256] = { 0 };
 			ImGui::SetNextItemWidth(ImGui::GetWindowContentRegionMax().x - this->imguiStyle->WindowPadding.x);
 			ImGui::InputText("##Search", buffer, IM_ARRAYSIZE(buffer));
 
 			// Go through C:\ProgramData\Microsoft\Windows\Start Menu\Programs
 			// TODO: This code is extremely slow and inefficient, fix it
+			ImGui::BeginChild("##Display", ImVec2(0, 0), false);
 			for (auto& file : std::filesystem::recursive_directory_iterator("C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\")) {
 				if (file.is_directory() || file.path().extension() != ".lnk") continue;
 
@@ -363,6 +435,9 @@ void Taskbar::Run() {
 					ShellExecuteA(nullptr, "open", file.path().string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 				}
 			}
+			ImGui::EndChild();
+
+			ImGui::End();
 		}
 
 	RENDER:
@@ -472,4 +547,25 @@ LRESULT WINAPI Taskbar::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 	}
 
 	return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+// TODO: More slow code, optimize this or find a better way
+LRESULT CALLBACK Taskbar::KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+	if (nCode == HC_ACTION) {
+		KBDLLHOOKSTRUCT* kbd = (KBDLLHOOKSTRUCT*)lParam;
+
+		if (kbd->vkCode == VK_LWIN && wParam == WM_KEYUP) {
+			static std::chrono::time_point<std::chrono::system_clock> lastPress = std::chrono::system_clock::now() - std::chrono::milliseconds(500);
+			for (int i = 0; i < 256; i++) {
+				if (GetAsyncKeyState(i) & 0x8000 && i != VK_LWIN) {
+					lastPress = std::chrono::system_clock::now();
+					break;
+				}
+			}
+
+			if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - lastPress).count() > 250)
+				g_Taskbar->showStartMenu = !g_Taskbar->showStartMenu;
+		}
+	}
+	return CallNextHookEx(g_Taskbar->kbdHook, nCode, wParam, lParam);
 }
