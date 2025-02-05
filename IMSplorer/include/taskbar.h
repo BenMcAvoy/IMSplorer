@@ -48,5 +48,6 @@ namespace IMS {
 		// TB data
 		std::unordered_map<HWND, Window> windows;
 		bool showStartMenu = false;
+		float tbHeight = 48.0f;
 	};
 } // namespace IMS

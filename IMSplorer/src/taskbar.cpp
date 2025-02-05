@@ -56,15 +56,26 @@ Taskbar::Taskbar(const std::string& title) {
 
 	int screenWidth = GetSystemMetrics(SM_CXSCREEN);
 	int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-	int taskbarHeight = 48;
+
+	RECT workArea = { 0 };
+    if (SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0)) {
+        int taskbarHeight = screenHeight - (workArea.bottom - workArea.top);
+		if (taskbarHeight != (float)this->tbHeight) {
+			spdlog::info("Taskbar height changed from {} to {}", this->tbHeight, this->tbHeight);
+			this->tbHeight = (float)taskbarHeight;
+		}
+	}
+	else {
+		spdlog::warn("SystemParametersInfo failed, can't calculate taskbar height");
+	}
 
 	this->hWnd = CreateWindowEx(
         dwExStyle,
         wc.lpszClassName,
 		titleW.c_str(),
         dwStyle,
-        0, screenHeight - taskbarHeight, // X, Y position (bottom of screen)
-        screenWidth, taskbarHeight,        // Width, Height
+        0, screenHeight - this->tbHeight, // X, Y position (bottom of screen)
+        screenWidth, this->tbHeight,        // Width, Height
         nullptr,
         nullptr,
 		wc.hInstance,
@@ -72,7 +83,7 @@ Taskbar::Taskbar(const std::string& title) {
     );
 
 	this->width = screenWidth;
-	this->height = taskbarHeight;
+	this->height = this->tbHeight;
 
 	// Show window
 	ShowWindow(this->hWnd, SW_SHOWDEFAULT);
@@ -249,7 +260,7 @@ void Taskbar::Run() {
 
 			float windowPadding = ImGui::GetStyle().WindowPadding.y * 2;
 			float width = ImGui::CalcTextSize("Start").x + windowPadding;
-			if (ImGui::Button("Start", ImVec2(width, 48 - windowPadding))) {
+			if (ImGui::Button("Start", ImVec2(width, this->tbHeight - windowPadding))) {
 				this->showStartMenu = !this->showStartMenu;
 			}
 
@@ -265,7 +276,7 @@ void Taskbar::Run() {
 					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
 
 				float width = ImGui::CalcTextSize(it->second.title.c_str()).x + windowPadding;
-				if (ImGui::Button(it->second.title.c_str(), ImVec2(width, 48 - windowPadding))) {
+				if (ImGui::Button(it->second.title.c_str(), ImVec2(width, this->tbHeight - windowPadding))) {
 					HWND hWnd = it->first;
 
 					if (!it->second.isFocused) {
@@ -305,7 +316,7 @@ void Taskbar::Run() {
 			float screenHeight = (float)GetSystemMetrics(SM_CYSCREEN);
 			static constexpr float startMenuWidth = 400;
 			static constexpr float startMenuHeight = 400;
-			ImGui::SetNextWindowPos(ImVec2(8, screenHeight - startMenuHeight - 48 - 8));
+			ImGui::SetNextWindowPos(ImVec2(8, screenHeight - startMenuHeight - this->tbHeight - 8));
 			ImGui::SetNextWindowSize(ImVec2(400, 400));
 			ImGui::Begin("Start", &this->showStartMenu, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
 
@@ -329,7 +340,7 @@ void Taskbar::Run() {
 				if (searchQuery != "" && jsFileNameLower.find(searchQuery) == std::string::npos) continue;
 
 				float windowWidth = ImGui::GetWindowContentRegionMax().x - this->imguiStyle->WindowPadding.x;
-				if (ImGui::Button(jsFileName.c_str(), ImVec2(windowWidth, 48))) {
+				if (ImGui::Button(jsFileName.c_str(), ImVec2(windowWidth, this->tbHeight))) {
 					ShellExecuteA(nullptr, "open", file.path().string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 				}
 			}
