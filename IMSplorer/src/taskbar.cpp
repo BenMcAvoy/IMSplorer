@@ -251,8 +251,10 @@ void Taskbar::Run() {
 			this->showStartMenu = !this->showStartMenu;
 		}
 
+		float screenWidth = (float)GetSystemMetrics(SM_CXSCREEN);
+		float screenHeight = (float)GetSystemMetrics(SM_CYSCREEN);
+
 		{
-			float screenHeight = (float)GetSystemMetrics(SM_CYSCREEN);
 			ImGui::SetNextWindowPos(ImVec2(0, screenHeight - this->height));
 			ImGui::SetNextWindowSize(ImVec2(this->width, this->height));
 			ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
@@ -307,13 +309,30 @@ void Taskbar::Run() {
 				ImGui::PopID();
 			}
 
+			float windowWidth = ImGui::GetWindowContentRegionMax().x - this->imguiStyle->WindowPadding.x;
+			auto now = std::chrono::system_clock::now();
+			time_t now_t = std::chrono::system_clock::to_time_t(now);
+			std::string time = fmt::format("{:%H:%M:%S}", fmt::localtime(now_t));
+			std::string date = fmt::format("{:%A, %B %d, %Y}", fmt::localtime(now_t));
+
+			float timeWidth = ImGui::CalcTextSize(time.c_str()).x;
+			float dateWidth = ImGui::CalcTextSize(date.c_str()).x;
+			ImGui::SameLine(windowWidth - max(timeWidth, dateWidth));
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			ImGui::BeginChild("Clock");
+			ImGui::Text(date.c_str());
+			ImGui::SetCursorPosX(dateWidth - timeWidth);
+			ImGui::Text(time.c_str());
+			ImGui::EndChild();
+			ImGui::PopStyleVar(2);
+
 			ImGui::End();
 		}
 
 		{
 			if (!this->showStartMenu) goto RENDER;
 
-			float screenHeight = (float)GetSystemMetrics(SM_CYSCREEN);
 			static constexpr float startMenuWidth = 400;
 			static constexpr float startMenuHeight = 400;
 			ImGui::SetNextWindowPos(ImVec2(8, screenHeight - startMenuHeight - this->tbHeight - 8));
@@ -326,10 +345,10 @@ void Taskbar::Run() {
 
 			// Go through C:\ProgramData\Microsoft\Windows\Start Menu\Programs
 			// TODO: This code is extremely slow and inefficient, fix it
-			for (auto& file : std::filesystem::recursive_directory_iterator("C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs")) {
-				if (file.is_directory()) continue;
+			for (auto& file : std::filesystem::recursive_directory_iterator("C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\")) {
+				if (file.is_directory() || file.path().extension() != ".lnk") continue;
+
 				std::string fileName = file.path().filename().string();
-				if (fileName.find(".lnk") == std::string::npos) continue;
 				std::string jsFileName = fileName.substr(0, fileName.find(".lnk"));
 
 				// Check if the file name contains the search query (case insensitive)
@@ -344,11 +363,9 @@ void Taskbar::Run() {
 					ShellExecuteA(nullptr, "open", file.path().string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 				}
 			}
-
-			ImGui::End();
 		}
 
-		RENDER:
+	RENDER:
 
 		ImGui::Render();
 		this->deviceContext->OMSetRenderTargets(1, &this->renderTargetView, nullptr);

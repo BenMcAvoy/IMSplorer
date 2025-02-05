@@ -17,9 +17,11 @@
 
 #include <d3d11.h>
 
-// Libs
+// Logging/string formatting
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <fmt/core.h>
+#include <fmt/chrono.h>
 
 // STD/STL
 #include <filesystem>
